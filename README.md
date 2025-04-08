@@ -1,6 +1,7 @@
 # Statistical-Models
 ## My Statistical Models for Data Science Coursework
 Hey there! 👋 This repo contains my work from the Statistical Models for Data Science course I took at the University of Haifa. <br>
+This course emphasized developing statistical modeling skills and the ability to communicate data analysis results clearly and effectively to both technical and non-technical audiences. <br>
 Each assignment folder is organized to include:
 * R code files with all analysis scripts
 * Statistical summary report (concise write-ups that explain my methodology and findings)
@@ -21,5 +22,5 @@ Logistic Regression Analysis:
 * Compared standard vs. mixed-effects models for nested observations
 
 Poisson Regression Analysis:
-* Investigated relationships between personality traits and future thinking frequency
+* Examined relationships between personality traits and future thinking frequency
 * Applied count data modeling with offset terms and overdispersion tests
