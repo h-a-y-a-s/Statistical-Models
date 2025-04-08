@@ -1,5 +1,5 @@
 # Statistical-Models
-## My Stats Models for Data Science Coursework
+## My Statistical Models for Data Science Coursework
 Hey there! 👋 This repo contains my work from the Statistical Models for Data Science course I took at the University of Haifa. <br>
 Each assignment folder is organized to include:
 * R code files with all analysis scripts
