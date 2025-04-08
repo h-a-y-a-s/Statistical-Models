@@ -1,0 +1,1054 @@
+---
+title: 'Statistical Models for Data Science Assignment 1: U.S. population nutrition
+  survey'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+
+```{r setup, include=FALSE,} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+# Assignment description
+
+Assignment 1: U.S. population nutrition survey Report due at the
+beginning of class on December 8
+
+The United States Department of Agriculture conducted a survey in 1995
+and 1996, with a representative sample of U.S. households, to examine
+the relationships among dietary habits, knowledge and attitudes, and
+health. The data for the project, a subset of the full sample comprising
+4036 observations, appear in four sheets of the Excel file called
+nutrition_data.xlsx. Descriptions of the variables appear in the file
+nutrition_vars.rtf,\* and full information about the survey questions
+whose names start with “kq” is given in the file scale_vars.pdf.
+
+Goal: To examine the variables affecting the BMI of the respondents.
+<br>
+
+## Load necessary libraries
+
+```{r, warning = FALSE, message = FALSE}
+rm(list = ls()) 
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tidyverse)
+library(knitr)
+```
+
+## Task 1 - Merging Nutrition Survey Datasets
+
+Combine the four sheets (main and scale, males and females) into a
+single R data frame. (Hints: You can save the sheets as four .csv files
+and read these in to R using read.csv(). Use merge() to combine the two
+sets of variables, and rbind() to combine males and females.)
+
+```{r}
+file_path_nutrition_data <- "Data/Nutrition_data.xlsx"
+
+main_m_data <- read_excel(file_path_nutrition_data, sheet = "main_m") 
+scale_m_data <- read_excel(file_path_nutrition_data, sheet = "scale_m")
+main_f_data <- read_excel(file_path_nutrition_data, sheet = "main_f")
+scale_f_data <- read_excel(file_path_nutrition_data, sheet = "scale_f")
+
+# combine 'main_m' and 'scale_m' data sets using merge()
+main_scale_m_combined <- merge(main_m_data, scale_m_data, by = "hhid", all = TRUE)
+
+# combine 'main_f' and 'scale_f' data sets using merge()
+main_scale_f_combined <- merge(main_f_data, scale_f_data, by = "hhid", all = TRUE)
+
+# combine the male and female data sets using rbind()
+final_data <- rbind(main_scale_m_combined, main_scale_f_combined)
+
+# view the structure of the final combined data frame
+str(final_data)
+```
+
+```{r}
+# deal with the duplicate sex columns
+drop_cols = c("sex.x", "sex.y")
+final_data$sex = final_data$sex.x
+
+# make sure the columns are identical before removing (this was caused because of merging data frames)
+if(all(final_data$sex.x == final_data$sex.y)){
+  final_data = final_data[,!(names(final_data) %in% drop_cols)]
+}
+# view the structure of the final combined data frame after removing the sex columns
+str(final_data)
+```
+
+## Tasks 2 and 3 - Descriptive Analysis and Data Cleaning
+
+2.  Use descriptive methods (frequency tables, histograms, the pairs()
+    function, etc.) to check the integrity and completeness of the
+    following variables: region, urbanization, income, age, sex, race,
+    education (highest grade completed), the five “diet” variables,
+    exercise frequency, and self-reported weight status. Don’t forget to
+    convert categorical variables to “factors”. (Note: In “real life,”
+    questions about the data should generally be referred to the
+    investigator to determine if there are errors in the data and, if
+    so, whether these can be corrected.) Only the above predictor
+    variables should be considered in the remaining questions.
+3.  For each variable, values that specify missing data (e.g.,
+    “indeterminate”, “not ascertained”) should be changed to NA.
+
+```{r}
+colnames(final_data)
+```
+
+Variables with unclear names:<br> "urb" = urbanization <br> "grade" =
+highest grade completed <br> "dt01", "dt02", "dt03", "dt06", "dt07" =
+the five “diet” variables <br> "exercise" = exercise frequency <br>
+"kq7" = self-reported weight status <br>
+
+Choose only variables of interest according to instructions
+
+```{r}
+vars_of_interest <- c("hhid", "region", "urb", "income", "age",
+                      "sex", "race", "grade", "dt01", "dt02", 
+                      "dt03", "dt06", "dt07", "exercise", "kq7", "bmi_sp")
+
+# select only the variables of interest from the final data frame
+data_subset <- final_data %>% dplyr::select(all_of(vars_of_interest))
+
+df_nutrition <- data_subset
+
+# check the structure of the data
+str(df_nutrition, vec.len=2)
+```
+
+Define variables types
+
+```{r}
+# categorical variables
+categorical_vars <- c("region", "urb", "sex", "race", "dt01", "dt02", 
+                      "dt03", "dt06", "dt07", "exercise", "kq7")
+# numeric variables
+numeric_vars <- c("income", "age", "grade")
+
+# initial NA check
+colSums(is.na(df_nutrition))
+```
+
+#### Recode catagorical variables
+
+Print frequency tables of variables before recording
+
+```{r}
+for (var in categorical_vars) {
+  freq_t <- table(df_nutrition[[var]])
+  cat("\nFrequency table of", var)
+  print(freq_t)
+
+}
+```
+
+Map values to factor levels according to the data set info in
+nutrion_vars.rtf
+
+```{r}
+df_nutrition$region <- factor(df_nutrition$region, 
+                             levels = c(1, 2, 3, 4), 
+                             labels = c("Northeast", "Midwest", 
+                                        "South", "West"))
+
+df_nutrition$urb <- factor(df_nutrition$urb, 
+                             levels = c(1, 2, 3), 
+                             labels = c("Central city", "Suburban",
+                                        "Nonmetropolitan"))
+
+df_nutrition$sex <- factor(df_nutrition$sex, 
+                             levels = c(1, 2), 
+                             labels = c("male", "female"))
+
+df_nutrition$race <- factor(df_nutrition$race, 
+                            levels = c(1, 2, 3, 4, 5), 
+                            labels = c("White", "Black", 
+                                       "Asian/Pacific Islander",
+                                       "American Indian/Alaska Native",
+                                       "Other"))
+
+# rename the 'kq7' column to a more informative name
+df_nutrition <- df_nutrition %>%
+  rename(self_rep_weight = kq7)
+
+# replace values 8 and 9 with NA
+df_nutrition <- df_nutrition %>%
+  mutate(self_rep_weight = na_if(self_rep_weight, 8),
+         self_rep_weight = na_if(self_rep_weight, 9))
+
+# map **only the values present in the frequency tables** above to the correct label
+df_nutrition$self_rep_weight <- factor(df_nutrition$self_rep_weight,
+                                       levels = c(1, 2, 3),
+                                       labels = c("Overweight", "Underweight",
+                                                  "About right"))
+
+# rename the diet variables according to nutrion_vars.rtf to more informative names
+df_nutrition <- df_nutrition %>%
+  rename(
+    diet_low_cal = dt01,
+    diet_low_fat = dt02,
+    diet_low_salt = dt03,
+    diet_high_fiber = dt06,
+    diet_diabetic = dt07
+  )
+
+diet_vars <- c("diet_low_cal", "diet_low_fat", "diet_low_salt", 
+               "diet_high_fiber", "diet_diabetic")
+
+for (var in diet_vars) {
+  # map values to factor levels (1 = Yes, 2 = No)
+  df_nutrition[[var]] <- factor(df_nutrition[[var]], 
+                                 levels = c(1, 2),
+                                 labels = c("Yes", "No"))
+}
+
+# treat value 9 as NA in the 'exercise' column
+df_nutrition$exercise <- na_if(df_nutrition$exercise, 9)
+
+# map variable values to corresponding labels and set as ordered factor
+df_nutrition$exercise <- factor(df_nutrition$exercise, 
+                                levels = c(1, 2, 3, 4, 5, 6), 
+                                labels = c("Daily", 
+                                           "5-6 times/week", 
+                                           "2-4 times/week", 
+                                           "Once a week", 
+                                           "1-3 times/month", 
+                                           "Rarely or never"), 
+                                ordered = TRUE)
+```
+
+Print new frequency tables including value frequencies and proportions
+and NA counts after recofing
+
+```{r}
+# categorical variables
+categorical_vars <- c("region", "urb", "sex", "race", "self_rep_weight", 
+                      "diet_low_cal", "diet_low_fat", "diet_low_salt",
+                      "diet_high_fiber", "diet_diabetic", "exercise")
+
+# categorical variables labels
+categorical_vars_info <- list(
+  region = "Region",
+  urb = "Urbanization",
+  sex = "Sex",
+  race = "Race",
+  self_rep_weight = "Self-Reported Weight Status",
+  exercise = "Exercise Frequency",
+  diet_low_cal = "Low Calorie Diet",
+  diet_low_fat = "Low Fat Diet",
+  diet_low_salt = "Low Salt Diet",
+  diet_high_fiber = "High Fiber Diet",
+  diet_diabetic = "Diabetic Diet"
+)
+
+for (var in categorical_vars) {
+  
+    freq_table <- table(df_nutrition[[var]])
+    prop_table <- prop.table(freq_table)
+    
+    # combine frequency and proportion into a data frame
+    result_df <- data.frame(
+      Category = names(freq_table),
+      Frequency = as.vector(freq_table),
+      Proportion = as.vector(prop_table)
+    )
+    # sort frequencies
+    result_df <- result_df %>% arrange(desc(Frequency))
+
+    print(paste("Frequency Table for", categorical_vars_info[[var]]))
+    print(result_df)
+    cat("\n")
+}
+```
+
+Count NA after re-coding variables
+```{r}
+colSums(is.na(df_nutrition[categorical_vars]))
+```
+
+Notes:
+<br> No missing values in the region variable 
+<br> The data is balanced with respect to the urbanization variable 
+<br> No missing values in the urbanization variable 
+<br> The data is balanced with
+respect to the sex variable <br> No missing values in the sex variable
+<br> Imbalanced race representation in the data set <br> No missing
+values in the race variable <br> 20 missing values in the self-reported
+weight status variable <br> No missing values in the diet variables <br>
+High degree of imbalance in the diet variables <br> 10 missing values 5
+in the exercise variable <br> A large number of never or rarely exercise
+<br>
+
+### Visualising cartagorical variables
+
+Bar plots for each catagorical variable
+
+```{r}
+# function to generate bar plots
+create_bar_plot <- function(data, var_name, title) {
+  ggplot(data, aes_string(x = var_name, fill = var_name)) +
+    geom_bar() +
+    labs(title = paste("Distribution of", title),
+         x = title,
+         y = "Count") +
+    scale_fill_brewer(palette = "Set3")+
+    theme_minimal() +
+     theme(
+      legend.position = "none",
+      plot.title = element_text(hjust = 0.5)
+    )+
+    coord_flip()
+   
+}
+
+for (var in names(categorical_vars_info)) {
+
+  # create plot
+  plot <- create_bar_plot(df_nutrition, var, categorical_vars_info[[var]])
+  
+  # save plot
+  filename <- file.path("Plots", paste0("bar_plot_", var, ".png"))
+  ggsave(filename, plot, width = 8, height = 6, dpi = 300)
+  
+  print(plot)
+}
+```
+
+Bar subplots plots for each categorical variables in one master plot to
+use in word
+
+```{r}
+library(gridExtra)
+library(grid)
+
+create_bar_plot <- function(data, var_name, title) {
+  ggplot(data, aes_string(x = var_name, fill = var_name)) +
+    geom_bar() +
+    labs(title = title,
+         x = NULL,
+         y = "Count") +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set3") +
+    theme(legend.position = "none",
+          plot.title = element_text(hjust = 0.5, size = 14))+
+    coord_flip()
+}
+
+# generate all plots
+plot_list <- lapply(names(categorical_vars_info), function(var) {
+  create_bar_plot(df_nutrition, var, categorical_vars_info[[var]])
+})
+
+# arrange and save the master plot
+title <- "Distribution of Categorical Variables in Nutrition Survey"
+combined_plot <- do.call(grid.arrange, 
+                        c(plot_list, 
+                          ncol = 4, 
+                          top = title))
+
+ggsave("Plots/categorical_distributions.png", combined_plot, 
+       width = 20, height = 10, dpi = 300)
+```
+
+### Preprocessing numeric variables
+
+Although "grade" is an ordinal variable, I'll treat it as a continuous
+variable due to the high number of levels.
+```{r}
+# function to calculate comprehensive descriptive statistics and return as a data frame
+analyze_numeric_variables <- function(data, variables) {
+  results <- list()
+  
+  for(variable_name in variables) {
+    x <- data[[variable_name]]
+    
+    # basic stats
+    stats <- data.frame(
+      Variable = variable_name,
+      n_obs = length(x),
+      n_valid = sum(!is.na(x)),
+      mean = mean(x, na.rm = TRUE),
+      sd = sd(x, na.rm = TRUE),
+      median = median(x, na.rm = TRUE),
+      min = min(x, na.rm = TRUE),
+      max = max(x, na.rm = TRUE),
+      q1 = quantile(x, 0.25, na.rm = TRUE),
+      q3 = quantile(x, 0.75, na.rm = TRUE),
+      iqr = IQR(x, na.rm = TRUE),
+      skewness = skewness(x, na.rm = TRUE),
+      kurtosis = kurtosis(x, na.rm = TRUE)
+    )
+    
+    # outlier statistics
+    q1 <- quantile(x, 0.25, na.rm = TRUE)
+    q3 <- quantile(x, 0.75, na.rm = TRUE)
+    iqr <- IQR(x, na.rm = TRUE)
+    lower_bound <- q1 - 1.5 * iqr
+    upper_bound <- q3 + 1.5 * iqr
+    outliers <- x[x < lower_bound | x > upper_bound]
+    
+    stats$n_outliers <- length(outliers)
+    stats$pct_outliers <- length(outliers)/sum(!is.na(x))*100
+
+    results[[variable_name]] <- stats
+  }
+ 
+  final_results <- do.call(rbind, results)
+  row.names(final_results) <- NULL
+  
+  return(final_results)
+}
+```
+
+```{r}
+library(moments)
+
+colSums(is.na(df_nutrition[numeric_vars]))
+
+# change values of 'grade' greater than 17 to NA
+df_nutrition$grade[df_nutrition$grade > 17] <- NA
+
+colSums(is.na(df_nutrition[numeric_vars]))
+
+# detailed descriptive statistics
+numeric_analysis <- analyze_numeric_variables(df_nutrition, numeric_vars)
+
+# round and print results
+numeric_cols <- sapply(numeric_analysis, is.numeric)
+numeric_analysis[numeric_cols] <- round(numeric_analysis[numeric_cols], 2)
+print(numeric_analysis)
+```
+```{r}
+table(df_nutrition$grade)
+```
+
+Notes:
+40 missing values in the education variable. <br>
+12 value is very common (high school level) <br>
+It is weird that 0 is the minimum and that it occurs 10 times, but it it was not mentioned in the instructions that this is a missing data.<br>
+
+No missing values in the income variable <br> 
+Income is positively skewed and the median is significantly lower than the mean <br>
+
+No missing values in the age variable <br> 
+The age range looks ok with no abnormalities <br>
+
+```{r}
+table(df_nutrition[[var]])
+```
+
+### Visualising numeric variables
+
+```{r, warning = FALSE}
+# continuous variables 
+continuous_vars_info <- list(
+  income = list(label = "Income"),
+  age = list(label = "Age"),
+  grade = list(label = "Education Level")
+)
+
+# function to plot histogram
+create_histogram <- function(data, var_name, info) {
+
+  mean_val <- mean(data[[var_name]], na.rm = TRUE)
+  median_val <- median(data[[var_name]], na.rm = TRUE)
+  
+  ggplot(data, aes_string(x = var_name)) +
+    geom_histogram(alpha = 0.7, color = "black", fill = "#1b9e77"
+    ) +
+    geom_vline(aes(xintercept = mean_val, color = "Mean"), linewidth = 2) +
+    geom_vline(aes(xintercept = median_val, color = "Median"), linewidth = 2) +
+    scale_color_manual(name = "", values = c("Mean" = "#d95f02", "Median" = "#7570b3")) +
+    labs(
+      title = paste("Distribution of", info$label),
+      x = info$label,
+      y = "Frequency"
+    ) +
+    theme_minimal()
+}
+
+# loop through variables to create and save plots
+for (var in names(continuous_vars_info)) {
+
+  plot <- create_histogram(df_nutrition, var, continuous_vars_info[[var]])
+  
+  filename <- file.path("Plots", paste0("histogram_", var, "_distribution.png"))
+  ggsave(filename, plot, width = 10, height = 5, dpi = 300)
+  
+  print(plot)
+}
+
+```
+
+### Correlations between variables
+
+```{r}
+# categorical variables
+categorical_vars <- c("region", "urb", "sex", "race", "self_rep_weight", 
+                      "diet_low_cal", "diet_low_fat", "diet_low_salt",
+                      "diet_high_fiber", "diet_diabetic", "exercise")
+# numeric variables
+numeric_vars <- c("income", "age", "grade")
+```
+
+#### Visualize correlations between numeric variables
+
+```{r}
+# correlation plot matrix using GGally
+library(GGally)
+pairs_plot <- ggpairs(df_nutrition[numeric_vars],
+        lower = list(continuous = wrap("smooth", alpha = 0.3, color = "#1B9E77")),
+        upper = list(continuous = wrap("cor", size = 5))) +
+  theme_minimal() +
+  labs(title = "Correlation Matrix Plot") 
+pairs_plot
+ggsave("Plots/pairs_plot.png", pairs_plot, width = 6, height = 5, dpi = 300)
+```
+
+#### Visualize correlations between numeric variables and catagorical variables
+
+```{r}
+for (num_var in numeric_vars) {
+  for (cat_var in categorical_vars) {
+    
+    # create boxplot for each combination of numeric and categorical variable
+    p <- ggplot(df_nutrition, aes_string(x = cat_var, y = num_var)) +
+      geom_boxplot(fill = "lightblue", color = "black") +
+      labs(title = paste(num_var, "by", cat_var), 
+           x = cat_var, y = num_var) +
+      theme_minimal()
+      print(p)
+  }
+}
+```
+The initial plots show relationships between all categorical and numeric variables,   
+but this makes it difficult to identify meaningful associations.  
+To focus on the most important relationships, I willl only plot relationships where:  
+1. ANOVA tests show statistical significance (p < 0.05)  
+2. Effect size (η²) is at least moderate (≥ 0.06)  
+```{r, warning=FALSE}
+
+format_pvalue <- function(p) {
+  if (p < 0.05) return("p < 0.05")
+  return(sprintf("p = %.3f", p))
+}
+
+# function to calculate mean differences between groups
+calculate_group_differences <- function(data, numeric_var, categorical_var) {
+  # ANOVA
+  model <- aov(as.formula(paste(numeric_var, "~", categorical_var)), data = data)
+  p_value <- summary(model)[[1]]["Pr(>F)"][[1]][1]
+  
+  # eta squared (effect size)
+  aov_table <- summary(model)[[1]]
+  eta_squared <- aov_table$`Sum Sq`[1] / sum(aov_table$`Sum Sq`)
+  
+  return(list(p_value = p_value, eta_squared = eta_squared))
+}
+
+# store results to sort by effect size
+plot_results <- list()
+
+# create plots and store results
+for (num_var in numeric_vars) {
+  for (cat_var in categorical_vars) {
+    # calc statistics
+    stats <- calculate_group_differences(df_nutrition, num_var, cat_var)
+    
+    # check if there's statistical significance and medium effect size
+    if (stats$p_value < 0.05 && stats$eta_squared >= 0.06) {
+      
+      # annotation text
+      stat_text <- sprintf(
+        "ANOVA: %s\nEffect size (η²) = %.3f",
+        format_pvalue(stats$p_value),
+        stats$eta_squared
+      )
+      
+      # boxplot
+      p <- ggplot(df_nutrition, aes_string(x = cat_var, y = num_var)) +
+        geom_violin(fill = "lightgray", alpha = 0.3) +
+        geom_boxplot(fill = "#1B9E77", alpha = 0.7, width = 0.5, outlier.shape = NA) +
+        geom_jitter(width = 0.2, alpha = 0.1, color = "black", size = 0.5) +
+        annotate("text", x = Inf, y = Inf, label = stat_text,
+                 hjust = 1.1, vjust = 1.1, size = 3) +
+        theme_minimal() +
+        theme(
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+          plot.subtitle = element_text(hjust = 0.5, size = 10),
+          panel.grid.minor = element_blank(),
+          plot.margin = margin(0.5, 0.5, 0.5, 0.5, "cm")
+        ) +
+        labs(
+          title = paste(num_var, "by", cat_var),
+          x = str_to_title(cat_var),
+          y = str_to_title(num_var)
+        )
+      
+      # store plot with its effect size for sorting
+      plot_results[[length(plot_results) + 1]] <- list(
+        plot = p,
+        eta_squared = stats$eta_squared,
+        p_value = stats$p_value,
+        variables = paste(num_var, "by", cat_var)
+      )
+    }
+  }
+}
+
+# sort results by effect size
+plot_results <- plot_results[order(sapply(plot_results, function(x) -x$eta_squared))]
+
+# Print summary of findings
+cat("\nSignificant relationships with medium/large effect size (η² ≥ 0.06):\n")
+for(result in plot_results) {
+  cat(sprintf("%s: η² = %.3f, %s\n", 
+              result$variables, 
+              result$eta_squared,
+              format_pvalue(result$p_value)))
+}
+
+# print plots in order of effect size and save them
+for(result in plot_results) {
+  print(result$plot)
+  ggsave(paste0("Plots/cat_num", result$variables,".png"), 
+         result$plot, width = 10, height = 5, dpi = 300)
+}
+```
+
+#### Visualize association between categorical variables
+
+Chi-square tests and Cramer's v to check significant and strong
+associations between categorical variables
+
+```{r, warning=FALSE}
+non_diet_vars <- c("region", "urb", "sex", "race", "self_rep_weight", "exercise")
+# function to analyze and visualize categorical associations
+# contingency tables have df > 3, so 0.15 represents a medium  effect size in cramers v 
+# I decided not to include the diet vars because of the low df and because the variables are highly imbalanced
+analyze_cat_association <- function(var1, var2, data, 
+                                  p_threshold = 0.001,    
+                                  v_threshold = 0.15) {   
+    # contingency table
+    cont_table <- table(data[[var1]], data[[var2]])
+    
+    # perform chi-square test
+    chi_test <- chisq.test(cont_table)
+    
+    # calculate cramers v
+    n <- sum(cont_table)
+    min_dim <- min(nrow(cont_table), ncol(cont_table)) - 1
+    cramers_v <- sqrt(chi_test$statistic / (n * min_dim))
+    
+    # check both significance and effect size
+    if(chi_test$p.value < p_threshold && cramers_v > v_threshold) {
+
+        df_plot <- as.data.frame(cont_table)
+        names(df_plot) <- c("Var1", "Var2", "Freq")
+
+        df_plot <- df_plot %>%
+            group_by(Var1) %>%
+            mutate(Prop = Freq/sum(Freq))
+   
+        p <- ggplot(df_plot, aes(x = Var1, y = Prop, fill = Var2)) +
+            geom_bar(stat = "identity", position = "fill") +
+            labs(title = paste(var1, "vs", var2),
+                 subtitle = sprintf("p-value: %.3e, Cramer's V: %.3f", 
+                                  chi_test$p.value, cramers_v),
+                 x = var1,
+                 y = "Proportion") +
+            theme_minimal() +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1))
+        
+        return(list(
+            plot = p,
+            p_value = chi_test$p.value,
+            cramers_v = cramers_v,
+            significant = TRUE
+        ))
+    } else {
+        return(list(
+            significant = FALSE,
+            p_value = chi_test$p.value,
+            cramers_v = cramers_v
+        ))
+    }
+}
+
+cat("Significant and Strong Associations between Categorical Variables:\n")
+for(i in 1:(length(non_diet_vars)-1)) {
+    for(j in (i+1):length(non_diet_vars)) {
+        var1 <- non_diet_vars[i]
+        var2 <- non_diet_vars[j]
+        
+        result <- analyze_cat_association(var1, var2, df_nutrition)
+        
+        if(result$significant) {
+            # Print results and plot
+            cat(sprintf("\n%s vs %s:\n", var1, var2))
+            cat(sprintf("p-value: %.3e\n", result$p_value))
+            cat(sprintf("Cramer's V: %.3f\n\n", result$cramers_v))
+            print(result$plot)
+            ggsave(paste0("Plots/cat_cat",var1, "by", var2,".png"), 
+                   result$plot, width = 10, height = 5, dpi = 300)
+        }
+    }
+}
+```
+
+## Task 4 - BMI Distribution and Transformation
+
+Check the distribution of the response variable and whether there is a
+need for a transformation.
+
+```{r}
+# initial examination of BMI values
+cat("Summary statistics of raw BMI:")
+
+# detailed descriptive statistics
+init_bmi_stats <- analyze_numeric_variables(df_nutrition, variables = "bmi_sp")
+print(init_bmi_stats)
+
+# data cleaning steps
+n_total <- nrow(df_nutrition)
+n_missing_initial <- sum(is.na(df_nutrition$bmi_sp))
+n_extreme <- sum(df_nutrition$bmi_sp >= 99, na.rm=TRUE)
+
+cat("\nData cleaning summary:")
+cat("\n- Total observations:", n_total)
+cat("\n- Initially missing:", n_missing_initial)
+cat("\n- Extreme values (BMI ≥ 99):", n_extreme)
+
+# clean BMI data
+df_nutrition$bmi_sp[df_nutrition$bmi_sp >= 99] <- NA
+n_missing_final <- sum(is.na(df_nutrition$bmi_sp))
+cat("\n- Final missing count:", n_missing_final)
+
+cat("\nSummary statistics of BMI after extreme values:")
+clean_bmi_stats <- analyze_numeric_variables(df_nutrition, variables = "bmi_sp")
+print(clean_bmi_stats)
+```
+Delete rows with missing response variable
+```{r}
+df_nutrition_clean <- df_nutrition %>%
+  filter(!is.na(bmi_sp))
+```
+
+```{r}
+# print distribution
+p1 <- ggplot(df_nutrition_clean, aes(x = bmi_sp)) +
+  geom_histogram(aes(y=..density..), fill = "#1B9E77", color = "black", alpha = 0.7, bins=30) +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Original BMI Distribution",
+       x = "BMI", y = "Density") +
+  theme_minimal()
+
+# QQ plot
+p2 <- ggplot(df_nutrition_clean, aes(sample = bmi_sp)) +
+  stat_qq() + stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Original BMI") +
+  theme_minimal()
+
+grid.arrange(p1, p2, ncol=2)
+
+# calculate and store distribution metrics
+dist_metrics <- data.frame(
+  Metric = c("Skewness", "Kurtosis", "Shapiro-Wilk p-value"),
+  Original = c(
+    round(skewness(df_nutrition_clean$bmi_sp, na.rm=TRUE), digits = 2),
+    round(kurtosis(df_nutrition_clean$bmi_sp, na.rm=TRUE), digits = 2),
+    round(shapiro.test(df_nutrition_clean$bmi_sp)$p.value, digits = 5)
+  )
+)
+print(dist_metrics)
+```
+
+The response variable is highly non-normal: Skewness (1.26):\
+A positive skew suggests a long tail on the right side of the
+distribution.\
+A skewness value far from 0 indicates significant asymmetry.
+
+Kurtosis (6.32):\
+A kurtosis value much greater than 3 indicates a heavy-tailed
+distribution.\
+The response variable has extreme outliers or a sharp peak. We can also
+see this in density pllot. Shapiro-Wilk Test: W = 0.50721, p-value \<
+2.2e-16 = Strong evidence against normality.
+
+```{r}
+library(MASS)
+
+boxcox_result <- boxcox(lm(bmi_sp ~ self_rep_weight + diet_low_cal + race, data = df_nutrition_clean), 
+                        lambda = seq(-2, 2, 0.1))
+
+# find the lambda value that maximizes log-likelihood
+optimal_lambda <- boxcox_result$x[which.max(boxcox_result$y)]
+cat("Optimal lambda for Box-Cox transformation:", optimal_lambda, "\n")
+
+# general Box-Cox formula
+# the value was roughly around -0.7 when changing the model, I will round to -0.7
+optimal_lambda <- round(optimal_lambda, digits = 1)
+cat("Optimal lambda for Box-Cox transformation after rounding:", optimal_lambda, "\n")
+df_nutrition_clean$bmi_boxcox <- (df_nutrition_clean$bmi_sp^optimal_lambda - 1) / optimal_lambda
+
+
+# compare distributions
+p3 <- ggplot(df_nutrition_clean, aes(x = bmi_boxcox)) +
+  geom_histogram(aes(y=..density..), fill = "#1B9E77", color = "black", alpha = 0.7, bins=30) +
+  geom_density(color = "red", size = 1) +
+  labs(title = "Transformed BMI Distribution",
+       x = "Box-Cox Transformed BMI", y = "Density") +
+  theme_minimal()
+
+p4 <- ggplot(df_nutrition_clean, aes(sample = bmi_boxcox)) +
+  stat_qq() + stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Transformed BMI") +
+  theme_minimal()
+
+grid.arrange(p3, p4, ncol=2)
+
+# add transformed metrics to comparison
+dist_metrics$Transformed <- c(
+  round(skewness(df_nutrition_clean$bmi_boxcox, na.rm=TRUE), digits = 2),
+  round(kurtosis(df_nutrition_clean$bmi_boxcox, na.rm=TRUE), digits = 2),
+  round(shapiro.test(df_nutrition_clean$bmi_boxcox)$p.value, digits = 5)
+  )
+
+# print comparison of metrics
+print(dist_metrics)
+
+plot <- grid.arrange(p1, p2, p3, p4, ncol=2)
+ggsave("Plots/box_cox_transform.png", plot, width = 8, height = 5, dpi = 300)
+```
+
+The p value for the Shapiro-Wilk normality not significant The Skewness
+is closer to 0 which is an improvement, the Kurtosis 3.04 is closer to 3
+indicating an improvment in heavy-tailedness.
+
+## Task 5 - Visualizing BMI-Predictor Relationships
+
+Use plot() and boxplot() to examine whether BMI appears to be related to
+the other variables listed above, and as an additional check for
+anomalies in the data.
+```{r}
+response_var <- "bmi_boxcox"  
+
+# categorical variables against BMI
+for (cat_var in categorical_vars) {
+  bp <- ggplot(df_nutrition_clean, aes_string(x = cat_var, y = response_var)) +
+    geom_boxplot(fill = "#1B9E77", color = "black") +
+    labs(title = paste("Boxplot of", response_var, "by", cat_var),
+         x = cat_var,
+         y = response_var) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  print(bp)
+  ggsave(paste0("Plots/respons_cat_", cat_var, ".png"), 
+         bp, width = 5, height = 5, dpi = 300)
+}
+
+# numeric variables against BMI
+for (num_var in numeric_vars) {
+  sp <- ggplot(df_nutrition_clean, aes_string(x = num_var, y = response_var)) +
+    geom_point(color = "skyblue", alpha = 0.6) +
+    labs(title = paste("Scatterplot of", response_var, "vs", num_var),
+         x = num_var,
+         y = response_var) +
+    theme_minimal()
+  
+  print(sp)
+  ggsave(paste0("Plots/respons_num_", num_var, ".png"), 
+         sp, width = 5, height = 5, dpi = 300)
+}
+```
+<br>
+
+## Task 6 - Univariate Regression of BMI Predictors
+
+```{r}
+# function to run regression and extract key statistics
+run_regression <- function(predictor, response, data) {
+  model <- lm(as.formula(paste(response, "~", predictor)), data = data)
+  summary_model <- summary(model)
+  
+  return(data.frame(
+    Predictor = predictor,
+    Coefficient = coef(model)[2],
+    Std_Error = summary_model$coefficients[2, 2],
+    t_value = summary_model$coefficients[2, 3],
+    p_value = summary_model$coefficients[2, 4],
+    R_squared = summary_model$r.squared
+  ))
+}
+
+# run regressions for numeric variables
+numeric_results <- do.call(rbind, lapply(numeric_vars, function(var) {
+  run_regression(var, "bmi_boxcox", df_nutrition_clean)
+}))
+
+# run regressions for categorical variables
+categorical_results <- do.call(rbind, lapply(categorical_vars, function(var) {
+  run_regression(var, "bmi_boxcox", df_nutrition_clean)
+}))
+
+# combine results
+regression_results <- rbind(numeric_results, categorical_results)
+
+# sort by p-value
+regression_results_sorted <- regression_results[order(regression_results$p_value), ]
+
+# print all results with significance
+regression_results_sorted$significant <- regression_results_sorted$p_value < 0.05
+print(regression_results_sorted)
+```
+
+Significant predictors in individual regression 
+```{r}
+# Step 1 in task 7: Screen variables based on existing regression results
+significant_predictors <- regression_results_sorted$Predictor[regression_results_sorted$p_value < 0.05]
+
+# Print significant predictors
+cat("Significant predictors (p < 0.05):\n")
+print(significant_predictors)
+```
+
+## Task 7 - individual regression
+
+### Step 1: Build multiple regression model with significant predictors 
+(significant predictors from individal regression)
+```{r}
+formula_string <- paste("bmi_boxcox ~", paste(significant_predictors, collapse = " + "))
+formula_multiple <- as.formula(formula_string)
+
+# fit multiple regression model
+multiple_model <- lm(formula_multiple, data = df_nutrition_clean, na.action = na.omit)
+
+# print summary of multiple regression model
+cat("\nMultiple Regression Model Summary:\n")
+print(summary(multiple_model))
+
+# model diagnostics
+par(mfrow = c(2,2))
+plot(multiple_model)
+par(mfrow = c(1,1))
+
+# check for multicollinearity
+library(car)
+cat("\nVariance Inflation Factors:\n")
+print(vif(multiple_model))
+
+# model fit statistics
+cat("\nModel Fit Statistics:\n")
+cat("Adjusted R-squared:", summary(multiple_model)$adj.r.squared, "\n")
+cat("AIC:", AIC(multiple_model), "\n")
+cat("BIC:", BIC(multiple_model), "\n")
+```
+
+### Step 2 - Backward Selection using AIC
+```{r}
+# create initial model with all significant predictors (linear terms only)
+formula_linear <- bmi_boxcox ~ self_rep_weight + diet_low_cal + race + sex + 
+                  diet_diabetic + income + diet_low_fat + diet_low_salt + 
+                  exercise + age
+
+# fit initial linear model with clean data
+linear_model <- lm(formula_linear, data = df_nutrition_clean)
+
+# Get sample size for BIC calculation
+n <- nrow(df_nutrition_clean)
+
+# Perform backward stepwise selection using AIC
+backward_bic <- stepAIC(linear_model, 
+                        direction = "backward",
+                        k = 2,
+                        trace = FALSE)  
+
+# print summary of the final model
+cat("\nFinal Model Summary after Backward Selection using AIC:\n")
+print(summary(backward_bic))
+
+# compare AIC values
+cat("\nModel Comparison:\n")
+cat("Original Linear Model AIC:", AIC(linear_model), "\n")
+cat("Backward Model AIC:", AIC(backward_bic), "\n")
+
+# compare BIC values
+cat("\nModel Comparison:\n")
+cat("Original Linear Model BIC:", BIC(linear_model), "\n")
+cat("Backward Model AIC:", BIC(backward_bic), "\n")
+
+# show the final model formula
+cat("\nFinal Model Formula:\n")
+print(formula(backward_bic))
+```
+### Step 3 - Backward Selection using BIC with interaction terms
+```{r}
+# base model without interactions
+base_formula <- bmi_boxcox ~ self_rep_weight + diet_low_cal + race + 
+                sex + diet_diabetic + income + age
+
+# model with all two-way interactions
+full_interaction_formula <- bmi_boxcox ~ (self_rep_weight + diet_low_cal + race + 
+                          sex + diet_diabetic + income + age)^2
+
+# fit both models
+base_model <- lm(base_formula, data = df_nutrition_clean)
+full_interaction_model <- lm(full_interaction_formula, data = df_nutrition_clean)
+
+# perform backward selection on the full interaction model using BIC
+n <- nrow(df_nutrition_clean)
+backward_interaction <- stepAIC(full_interaction_model, 
+                              direction = "backward",
+                              k = log(n), 
+                              trace = FALSE)  # Use BIC criterion for more strict selection 
+
+# print summary of the final model
+cat("\nFinal Model Summary after Backward Selection with Interactions:\n")
+print(summary(backward_interaction))
+
+# compare BIC values
+cat("\nModel Comparison:\n")
+cat("Base Model AIC:", AIC(base_model), "\n")
+cat("Final Model with Interactions AIC:", AIC(backward_interaction), "\n")
+
+# compare BIC values
+cat("\nModel Comparison:\n")
+cat("Base Model BIC:", BIC(base_model), "\n")
+cat("Final Model with Interactions BIC:", BIC(backward_interaction), "\n")
+
+# show the final model formula
+cat("\nFinal Model Formula:\n")
+print(formula(backward_interaction))
+```
+```{r}
+# print summary of multiple regression model
+cat("\nMultiple Regression Model Summary:\n")
+print(summary(backward_interaction))
+
+
+png("Plots/final_model.png", width = 8, height = 10, units = "in", res = 300)
+
+# model diagnostics
+par(mfrow = c(2,2))
+plot(multiple_model)
+par(mfrow = c(1,1))
+dev.off()
+
+# model fit statistics
+cat("\nModel Fit Statistics:\n")
+cat("Adjusted R-squared:", summary(backward_interaction)$adj.r.squared, "\n")
+cat("AIC:", AIC(multiple_model), "\n")
+cat("BIC:", BIC(multiple_model), "\n")
+```
+
